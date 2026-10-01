@@ -1,5 +1,6 @@
 function love.conf(t)
     t.title = "Fishbowl"
+    t.identity = "Fishbowl"
     t.version = "11.4"
     t.console = true  -- Enable console window for debug output (Windows)
     t.window.width = 1280

@@ -3,13 +3,10 @@
 -- Enhanced with atmospheric particles, ethereal glows, and dreamy effects
 -- Now with custom post-processing shaders!
 
--- Add shared library path
-package.path = package.path .. ";../lib/?.lua;../lib/?/init.lua"
-
--- Shared libraries
-local PostFX = require("postfx")
-local Scaling = require("scaling")
-local Particles = require("particles")
+-- Shared libraries (LoveLibs subtree)
+local PostFX = require("LoveLibs.graphics.postfx")
+local Scaling = require("LoveLibs.graphics.scaling")
+local Particles = require("LoveLibs.graphics.particles")
 
 -- Game modules
 local background = require("background")
