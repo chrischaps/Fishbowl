@@ -1,225 +1,137 @@
--- Fishbowl: Ambient Fish Tank Simulation
--- A meditative procedural aquarium
--- Enhanced with atmospheric particles, ethereal glows, and dreamy effects
--- Now with custom post-processing shaders!
+-- Fishbowl: an ambient aquarium
+-- A planted tank seen through its front glass, living through a day and a night.
 
 -- Shared libraries (LoveLibs subtree)
 local PostFX = require("LoveLibs.graphics.postfx")
 local Scaling = require("LoveLibs.graphics.scaling")
-local Particles = require("LoveLibs.graphics.particles")
 
--- Game modules
-local background = require("background")
-local Fish = require("fish")
-local Bubble = require("bubble")
-local Plant = require("plant")
-local Food = require("food")
+local C = require("config")
+local World = require("world")
+local Render = require("fx.render")
+local DayCycle = require("env.daycycle")
+local Surface = require("env.surface")
+local Water = require("env.water")
+local Current = require("env.current")
+local Substrate = require("env.substrate")
 
--- Game state
-local fish = {}
-local bubbles = {}
-local plants = {}
-local foodParticles = {}
-local mouseX, mouseY = 0, 0
+local env = DayCycle.env
+local time = 0
+local snap = nil  -- { name, at, frames } when running with --snap
 
--- Configuration
-local NUM_FISH = 6
-local NUM_PLANTS = 12
+local function parseArgs(args)
+    for i, a in ipairs(args or {}) do
+        if a == "--snap" then
+            snap = { name = args[i + 1] or "day", at = tonumber(args[i + 2]) or 4 }
+        end
+    end
+end
 
--- Virtual/native resolution (content is designed for this size)
-local NATIVE_WIDTH = 1280
-local NATIVE_HEIGHT = 720
-
--- Bubble cluster timer (for occasional grouped bubbles)
-local clusterTimer = 0
-local clusterInterval = 8 + math.random() * 6
-
-function love.load()
-    love.graphics.setBackgroundColor(0, 0, 0)  -- Black letterbox/pillarbox
+function love.load(args)
+    parseArgs(args)
+    love.graphics.setBackgroundColor(0, 0, 0)
     math.randomseed(os.time())
 
-    -- Initialize scaling system
-    Scaling.init(NATIVE_WIDTH, NATIVE_HEIGHT)
-
-    -- Initialize background with native resolution
-    background.init(NATIVE_WIDTH, NATIVE_HEIGHT)
-
-    -- Warm sunset palette - cohesive, stylized colors
-    local fishColors = {
-        {1.0, 0.45, 0.2},   -- Warm orange
-        {1.0, 0.65, 0.3},   -- Golden amber
-        {0.95, 0.35, 0.35}, -- Coral red
-        {0.85, 0.25, 0.45}, -- Deep magenta
-        {1.0, 0.8, 0.4},    -- Soft gold
-    }
-
-    for i = 1, NUM_FISH do
-        local color = fishColors[(i - 1) % #fishColors + 1]
-        local newFish = Fish.new(
-            math.random(100, NATIVE_WIDTH - 100),
-            math.random(100, NATIVE_HEIGHT - 150),
-            color
-        )
-        table.insert(fish, newFish)
+    Scaling.init(C.W, C.H)
+    Render.init()
+    DayCycle.init()
+    if snap then
+        DayCycle.set(DayCycle.presets[snap.name] or DayCycle.presets.day)
+        DayCycle.setSpeed(0)
     end
+    Surface.init()
+    Water.init()
+    Substrate.init()
 
-    -- Spawn plants along the bottom
-    for i = 1, NUM_PLANTS do
-        local x = (i - 1) * (NATIVE_WIDTH / NUM_PLANTS) + math.random(-30, 30) + 50
-        local plantType = math.random(1, 3)
-        table.insert(plants, Plant.new(x, NATIVE_HEIGHT - 50, plantType))
-    end
-
-    -- Initialize floating particles with warm sunset colors
-    Particles.init(NATIVE_WIDTH, NATIVE_HEIGHT, {
-        colors = {
-            normal = {1, 0.85, 0.7},      -- Warm amber
-            lit = {1, 0.9, 0.7},          -- Bright golden
-            glow = {1, 0.9, 0.75}         -- Warm glow
-        }
-    })
-    Particles.setLightRays(background.getLightRays())
-
-    -- Initialize post-processing with warm sunset color grading
-    PostFX.init(NATIVE_WIDTH, NATIVE_HEIGHT, {
-        distortion = { enabled = true, strength = 0.006, speed = 0.7 },
-        bloom = { enabled = true, threshold = 0.50, intensity = 0.6 },
-        colorGrade = {
-            enabled = true,
-            saturation = 0.15,
-            contrast = 0.10,
-            warmth = 0.12,
-            vignetteStrength = 0.35,
-            vignetteRadius = 0.65,
-            shadowTint = {0.25, 0.12, 0.05},
-            highlightTint = {1.04, 1.02, 0.98}
-        }
+    PostFX.init(C.W, C.H, {
+        distortion = { enabled = true, strength = 0.0012, speed = 0.5 },
+        bloom = { enabled = true, threshold = 0.6, intensity = 0.5 },
+        colorGrade = { enabled = true, vignetteRadius = 0.68, highlightTint = { 1.02, 1.01, 0.99 } },
     })
 end
 
 function love.update(dt)
-    -- Convert mouse position to game coordinates
-    local screenMouseX, screenMouseY = love.mouse.getPosition()
-    mouseX, mouseY = Scaling.toGame(screenMouseX, screenMouseY)
+    dt = math.min(dt, 1 / 20)
+    time = time + dt
 
-    -- Update background effects
-    background.update(dt)
+    DayCycle.update(dt)
+    DayCycle.applyPost(PostFX)
+    Current.update(dt)
+    Surface.update(dt)
+    Water.update(dt)
+    Substrate.update(dt)
+    PostFX.update(dt)
 
-    -- Update floating particles
-    Particles.update(dt, NATIVE_WIDTH, NATIVE_HEIGHT)
-
-    -- Update fish (use native resolution)
-    for i, f in ipairs(fish) do
-        Fish.update(f, dt, NATIVE_WIDTH, NATIVE_HEIGHT, mouseX, mouseY, foodParticles, fish)
-    end
-
-    -- Update fish wake particles
-    Fish.updateWakeParticles(dt)
-
-    -- Update bubbles
-    Bubble.updateAll(bubbles, dt, NATIVE_WIDTH, NATIVE_HEIGHT)
-
-    -- Spawn new bubbles occasionally (more frequent small bubbles)
-    if math.random() < dt * 0.8 then
-        table.insert(bubbles, Bubble.new(math.random(50, NATIVE_WIDTH - 50), NATIVE_HEIGHT - 30))
-    end
-
-    -- Occasional bubble clusters for visual interest
-    clusterTimer = clusterTimer + dt
-    if clusterTimer > clusterInterval then
-        clusterTimer = 0
-        clusterInterval = 6 + math.random() * 8
-        local clusterX = math.random(80, NATIVE_WIDTH - 80)
-        local clusterBubbles = Bubble.newCluster(clusterX, NATIVE_HEIGHT - 30, math.random(3, 5))
-        for _, b in ipairs(clusterBubbles) do
-            table.insert(bubbles, b)
+    if snap then
+        if time >= snap.at and not snap.taken then
+            love.filesystem.createDirectory("snaps")
+            love.graphics.captureScreenshot("snaps/" .. snap.name .. ".png")
+            snap.taken = time
+        elseif snap.taken and time > snap.taken + 0.3 then
+            love.event.quit()
         end
     end
+end
 
-    -- Update plants
-    for _, p in ipairs(plants) do
-        Plant.update(p, dt, fish)
+local function drawScene()
+    local scene = Render.canvas("scene")
+    love.graphics.setCanvas(scene)
+    love.graphics.clear(0, 0, 0, 1)
+
+    Water.drawBackground(env)
+    Water.drawRays(env, 1.0)
+    Substrate.drawBed(env, Water.time())
+
+    Render.beginObjects(env)
+    for _, r in ipairs(Substrate.getRocks()) do
+        Substrate.drawRock(r)
     end
+    love.graphics.setShader()
 
-    -- Update food particles
-    Food.updateAll(foodParticles, dt, NATIVE_HEIGHT)
+    Water.drawRays(env, 0.35)
+    Substrate.drawFront()
 
-    -- Update post-processing time
-    PostFX.update(dt)
+    love.graphics.setCanvas()
+end
+
+local function composite()
+    local sh = Render.shader("composite")
+    love.graphics.setColor(1, 1, 1, 1)
+    if sh then
+        love.graphics.setShader(sh)
+        sh:send("surfaceTex", Surface.texture())
+        sh:send("frontY", C.SURFACE_Y)
+        sh:send("backY", World.surfaceScreenY(0))
+        sh:send("airColor", env.air)
+        sh:send("lamp", env.lamp)
+        sh:send("lightColor", env.light)
+        sh:send("lightI", env.light_i)
+        sh:send("time", time)
+        sh:send("size", { C.W, C.H })
+        sh:send("tap", { 0, 0, 0, 0 })
+        sh:send("aberration", 0.010)
+        sh:send("grain", 0.012)
+    end
+    love.graphics.draw(Render.canvas("scene"))
+    love.graphics.setShader()
 end
 
 function love.draw()
-    -- Begin post-processing pipeline (render to canvas at native resolution)
+    Render.updateCaustics(Water.time())
+    drawScene()
+
     PostFX.beginScene()
-
-    -- Draw background (gradient, light rays)
-    background.drawBack(NATIVE_WIDTH, NATIVE_HEIGHT)
-
-    -- Draw back-layer floating particles (behind everything)
-    Particles.drawBack()
-
-    -- Draw plants (behind fish)
-    for _, p in ipairs(plants) do
-        Plant.draw(p)
-    end
-
-    -- Draw fish wake particles (behind fish bodies)
-    Fish.drawWakeParticles()
-
-    -- Draw fish
-    for _, f in ipairs(fish) do
-        Fish.draw(f)
-    end
-
-    -- Draw bubbles
-    for _, b in ipairs(bubbles) do
-        Bubble.draw(b)
-    end
-
-    -- Draw front-layer floating particles (in front of fish)
-    Particles.drawFront()
-
-    -- Draw food
-    for _, food in ipairs(foodParticles) do
-        Food.draw(food)
-    end
-
-    -- Draw foreground effects (caustics on sand)
-    background.drawFront(NATIVE_WIDTH, NATIVE_HEIGHT)
-
-    -- End post-processing (apply effects and output to screen with scaling)
-    local scale, offsetX, offsetY = Scaling.getTransform()
-    PostFX.endScene(scale, offsetX, offsetY)
-end
-
-function love.mousepressed(x, y, button)
-    if button == 1 then
-        -- Convert screen coordinates to game coordinates
-        local gameX, gameY = Scaling.toGame(x, y)
-
-        -- Drop food at cursor position (in game coordinates)
-        for i = 1, math.random(3, 5) do
-            local ox = math.random(-20, 20)
-            local oy = math.random(-10, 10)
-            table.insert(foodParticles, Food.new(gameX + ox, gameY + oy))
-        end
-    end
+    composite()
+    local scale, ox, oy = Scaling.getTransform()
+    PostFX.endScene(scale, ox, oy)
 end
 
 function love.resize(w, h)
-    -- Update scaling factors
     Scaling.update()
-
-    -- Recreate shader canvases at native resolution
-    PostFX.resize(NATIVE_WIDTH, NATIVE_HEIGHT)
+    PostFX.resize(C.W, C.H)
 end
 
 function love.keypressed(key)
-    -- Pass to post-processing controls (F1-F4)
     PostFX.handleKeyPress(key)
-
-    -- ESC to quit
-    if key == "escape" then
-        love.event.quit()
-    end
+    if key == "t" then DayCycle.skip() end
+    if key == "escape" then love.event.quit() end
 end
