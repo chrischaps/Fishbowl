@@ -24,40 +24,22 @@ local Food = require("food")
 local Ambience = require("audio.ambience")
 local UI = require("ui")
 local Save = require("save")
+local Dev = require("dev")
 
 local env = DayCycle.env
 local time = 0
-local snap = nil          -- { name, at } when running with --snap
 local cursor = { x = 0, y = 0, active = false, still = 0 }
 local drawList = {}
 local saveTimer = 0
 local hovered = nil
 
-local function parseArgs(args)
-    for i, a in ipairs(args or {}) do
-        if a == "--snap" then
-            -- --snap <time of day> <seconds> [feed]: render, save a PNG, quit
-            snap = { name = args[i + 1] or "day", at = tonumber(args[i + 2]) or 4, feed = args[i + 3] == "feed" }
-        elseif a == "--selftest" then
-            -- Drives every interaction on a timeline, then saves a picture and quits
-            snap = { name = "selftest", at = 9, selftest = true }
-        elseif a == "--seed" then
-            C.SCAPE_SEED = tonumber(args[i + 1]) or C.SCAPE_SEED
-        end
-    end
-end
-
 function love.load(args)
-    parseArgs(args)
+    Dev.parse(args)
     love.graphics.setBackgroundColor(0, 0, 0)
 
     Scaling.init(C.W, C.H)
     Render.init()
     DayCycle.init()
-    if snap then
-        DayCycle.set(DayCycle.presets[snap.name] or DayCycle.presets.day)
-        DayCycle.setSpeed(0)
-    end
     Surface.init()
     Water.init()
 
@@ -72,7 +54,7 @@ function love.load(args)
     Fish.init(Save.load())
     UI.init()
     Ambience.init()
-    if snap then love.audio.setVolume(0) end
+    Dev.setup()
 
     PostFX.init(C.W, C.H, {
         distortion = { enabled = true, strength = 0.0010, speed = 0.5 },
@@ -89,8 +71,6 @@ end
 --------------------------------------------------------------------------------
 -- Update
 --------------------------------------------------------------------------------
-local cursorOverride = nil
-
 local debugInfo = {
     getDebugInfo = function()
         local info = { { section = "Fish" } }
@@ -103,51 +83,14 @@ local debugInfo = {
     end,
 }
 
-local function selftest()
-    local steps = snap.steps or {}
-    snap.steps = steps
-    local function at(t, name, fn)
-        if time >= t and not steps[name] then
-            steps[name] = true
-            print("[selftest] " .. name)
-            fn()
-        end
-    end
-    at(0.5, "feed", function() love.mousepressed(400, 300, 1) end)
-    at(1.5, "tap", function() love.mousepressed(700, 380, 2) end)
-    at(2.0, "keys", function()
-        for _, k in ipairs({ "]", "[", "h", "m", "r", "r", "t", "f11", "f12" }) do love.keypressed(k) end
-    end)
-    at(3.0, "hover", function()
-        local f = Fish.all()[1]
-        local sx, sy = World.project(f.x, f.y, f.z)
-        cursorOverride = { sx, sy }
-    end)
-    at(4.5, "resize", function() love.resize(1000, 700) end)
-    at(4.8, "save", function()
-        Save.write(Fish.snapshot())
-        local back = Save.load()
-        local f = Fish.all()[1]
-        print("[selftest] save round trip: " .. tostring(back and back[f.id] and back[f.id].name == f.name))
-    end)
-    at(5.0, "night", function()
-        love.keypressed("h")
-        love.keypressed("m")
-        DayCycle.set(DayCycle.presets.night)
-    end)
-end
-
 local function updateCursor(dt)
     local mx, my = love.mouse.getPosition()
     local gx, gy = Scaling.toGame(mx, my)
-    if cursorOverride then
-        local f = Fish.all()[1]
-        cursorOverride[1], cursorOverride[2] = World.project(f.x, f.y, f.z)
-        gx, gy = cursorOverride[1], cursorOverride[2]
-    end
+    local ox, oy = Dev.cursor()
+    if ox then gx, gy = ox, oy end
     local moved = math.abs(gx - cursor.x) + math.abs(gy - cursor.y)
     cursor.x, cursor.y = gx, gy
-    cursor.active = (cursorOverride or love.window.hasMouseFocus()) and gx > 0 and gx < C.W and gy > C.SURFACE_Y and gy < C.H
+    cursor.active = (ox or love.window.hasMouseFocus()) and gx > 0 and gx < C.W and gy > C.SURFACE_Y and gy < C.H
     if moved < 2 then
         cursor.still = cursor.still + dt
     else
@@ -209,27 +152,12 @@ function love.update(dt)
     UI.update(dt, hovered)
 
     saveTimer = saveTimer + dt
-    if saveTimer > 30 and not snap then
+    if saveTimer > 30 and not Dev.active() then
         saveTimer = 0
         Save.write(Fish.snapshot())
     end
 
-    if snap then
-        if snap.selftest then selftest() end
-        if snap.feed and time > 1 and not snap.fed then
-            snap.fed = true
-            Food.sprinkle(560)
-            Food.sprinkle(760)
-        end
-        if time >= snap.at and not snap.taken then
-            love.filesystem.createDirectory("snaps")
-            love.graphics.captureScreenshot("snaps/" .. snap.name .. ".png")
-            print(string.format("[snap] %s  fps %d", snap.name, love.timer.getFPS()))
-            snap.taken = time
-        elseif snap.taken and time > snap.taken + 0.3 then
-            love.event.quit()
-        end
-    end
+    Dev.update(time)
 end
 
 --------------------------------------------------------------------------------
@@ -252,6 +180,9 @@ local function drawObject(o)
         Substrate.drawRock(o)
     elseif kind == "wood" then
         Driftwood.draw(o)
+    elseif kind == "airstone" then
+        Render.useObject(o.d, 0.6)
+        Bubble.drawStone(env)
     end
 end
 
@@ -286,6 +217,7 @@ local function drawScene()
     end
     add(Substrate.getRocks())
     drawList[#drawList + 1] = Driftwood.get()
+    drawList[#drawList + 1] = Bubble.stone()
     add(Plants.all())
     add(Fish.all())
     add(Bubble.all())
@@ -417,5 +349,5 @@ function love.resize(w, h)
 end
 
 function love.quit()
-    if not snap then Save.write(Fish.snapshot()) end
+    if not Dev.active() then Save.write(Fish.snapshot()) end
 end

@@ -59,6 +59,39 @@ end
 
 function Bubble.all() return list end
 
+-- The air stone and its airline, drawn as a scene object
+local stone = { kind = "airstone", d = C.BUBBLER_D - 0.01 }
+function Bubble.stone() return stone end
+
+function Bubble.drawStone(env)
+    local d = stone.d
+    local fy = World.floorY(C.BUBBLER_X, d)
+    local sx, sy, k = World.project(C.BUBBLER_X, fy - 5, d)
+
+    -- Airline tubing: clear silicone running up to the rim
+    local tx, ty = World.project(C.BUBBLER_X - 26, C.SURFACE_Y - 30, d - 0.02)
+    local mx, my = World.project(C.BUBBLER_X - 18, fy - 140, d - 0.01)
+    local curve = love.math.newBezierCurve(sx - 2 * k, sy - 6 * k, mx, my, tx, ty)
+    local pts = curve:render(4)
+    love.graphics.setLineWidth(5 * k)
+    love.graphics.setColor(0.70, 0.78, 0.76, 0.22)
+    love.graphics.line(pts)
+    love.graphics.setLineWidth(1.4 * k)
+    love.graphics.setColor(0.95, 1.0, 1.0, 0.30)
+    love.graphics.line(pts)
+    love.graphics.setLineWidth(1)
+
+    -- The porous stone itself
+    love.graphics.setColor(0.42, 0.44, 0.48, 1)
+    love.graphics.rectangle("fill", sx - 11 * k, sy - 7 * k, 22 * k, 12 * k, 5 * k, 5 * k)
+    love.graphics.setColor(0.58, 0.60, 0.64, 1)
+    love.graphics.rectangle("fill", sx - 10 * k, sy - 7 * k, 20 * k, 5 * k, 4 * k, 4 * k)
+    love.graphics.setColor(0.25, 0.27, 0.30, 0.8)
+    for i = 0, 9 do
+        love.graphics.points(sx - 8 * k + (i * 37 % 16) * k, sy - 5 * k + (i * 13 % 9) * k)
+    end
+end
+
 function Bubble.draw(b, env)
     local sx, sy, k = World.project(b.x, b.y, b.d)
     local r = b.r * k

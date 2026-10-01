@@ -18,7 +18,7 @@ local regrow = 0
 
 local function speck(x, y)
     local g = 0.35 + random() * 0.25
-    love.graphics.setColor(0.25 + random() * 0.1, g, 0.12, 0.03 + random() * 0.07)
+    love.graphics.setColor(0.32 + random() * 0.1, g + 0.1, 0.18, 0.02 + random() * 0.05)
     love.graphics.circle("fill", x, y, 0.6 + random() ^ 2 * 2.2)
 end
 
@@ -31,7 +31,7 @@ local function seedAlgae()
     for _ = 1, 1600 do
         local x, y
         local r = random()
-        if r < 0.35 then
+        if r < 0.15 then
             x, y = random() * C.W, C.SURFACE_Y + 30 + random() ^ 2 * 120
         elseif r < 0.6 then
             local left = random() < 0.5
