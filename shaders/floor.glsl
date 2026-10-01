@@ -45,7 +45,7 @@ vec4 effect(vec4 vcolor, Image tex, vec2 tc, vec2 sc) {
     float t = time * 0.45;
     vec3 cs = vec3(caustic(p + vec2(0.004, 0.0), t), caustic(p, t), caustic(p - vec2(0.004, 0.0), t));
 
-    vec3 lit = c.rgb * ambient + c.rgb * cs * causticColor * causticAmt * 0.9;
+    vec3 lit = c.rgb * ambient + c.rgb * cs * causticColor * causticAmt * 0.75;
     lit = mix(lit, fog, pow(1.0 - d, 1.6) * hazeMax);
     return vec4(lit, c.a);
 }

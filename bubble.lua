@@ -1,130 +1,88 @@
--- Rising bubble particle system
--- Enhanced with iridescent shimmer and varied sizes
+-- Bubbles: the air-stone column, oxygen pearls from plants, and breaths
+-- from fish. Rendered as real bubbles look underwater: a bright rim and
+-- highlight around an almost invisible body. They pop at the surface.
+
+local C = require("config")
+local World = require("world")
+local Current = require("env.current")
+local Render = require("fx.render")
 
 local Bubble = {}
 
--- Create a single bubble with varied properties
-function Bubble.new(x, y, sizeOverride)
-    -- Most bubbles are small (champagne-like), occasional larger ones
-    local sizeRoll = math.random()
-    local size
-    if sizeOverride then
-        size = sizeOverride
-    elseif sizeRoll < 0.7 then
-        size = 1 + math.random() * 2  -- Tiny bubbles (most common)
-    elseif sizeRoll < 0.9 then
-        size = 2 + math.random() * 3  -- Medium bubbles
-    else
-        size = 4 + math.random() * 5  -- Large bubbles (rare)
-    end
+local random = math.random
+local sin = math.sin
 
-    return {
-        x = x,
-        y = y,
-        startX = x,
-        size = size,
-        speed = 20 + math.random() * 30 + (10 - size) * 3,  -- Smaller = faster rise
-        wobbleSpeed = 0.8 + math.random() * 1.5,
-        wobbleAmount = 8 + math.random() * 15,
-        phase = math.random() * math.pi * 2,
-        time = 0,
-        alpha = 0.35 + math.random() * 0.25,
-        displaySize = size,
-        -- Iridescent shimmer properties
-        shimmerPhase = math.random() * math.pi * 2,
-        shimmerSpeed = 2 + math.random() * 3,
+local list = {}
+local pops = {}
+local stoneTimer = 0
+
+function Bubble.spawn(x, y, d, r, kind)
+    list[#list + 1] = {
+        kind = "bubble", x = x, y = y, d = d, r = r, source = kind or "stone",
+        t = 0, phase = random() * 10, wobble = 6 + random() * 9,
+        wobbleSpeed = 5 + random() * 5, vx = 0,
     }
 end
 
--- Create a cluster of bubbles
-function Bubble.newCluster(x, y, count)
-    local bubbles = {}
-    count = count or math.random(2, 4)
-    for i = 1, count do
-        local offsetX = (math.random() - 0.5) * 15
-        local offsetY = math.random() * 10
-        local delay = math.random() * 0.3
-        local b = Bubble.new(x + offsetX, y + offsetY, 1 + math.random() * 2)
-        b.time = -delay  -- Stagger the start
-        table.insert(bubbles, b)
+function Bubble.update(dt, env)
+    -- The air stone: a fine, steady column
+    stoneTimer = stoneTimer - dt
+    while stoneTimer <= 0 do
+        stoneTimer = stoneTimer + 1 / 22
+        local r = random() < 0.85 and (0.9 + random() * 1.6) or (2.2 + random() * 2.2)
+        local floor = World.floorY(C.BUBBLER_X, C.BUBBLER_D) - 6
+        Bubble.spawn(C.BUBBLER_X + (random() - 0.5) * 8, floor, C.BUBBLER_D + (random() - 0.5) * 0.02, r, "stone")
     end
-    return bubbles
-end
 
-function Bubble.updateAll(bubbles, dt, screenW, screenH)
-    for i = #bubbles, 1, -1 do
-        local b = bubbles[i]
-        b.time = b.time + dt
-
-        -- Rise upward
-        b.y = b.y - b.speed * dt
-
-        -- Wobble side to side
-        b.x = b.startX + math.sin(b.time * b.wobbleSpeed + b.phase) * b.wobbleAmount
-
-        -- Slight size pulse
-        b.displaySize = b.size * (1 + math.sin(b.time * 3) * 0.1)
-
-        -- Remove if above screen
-        if b.y < -10 then
-            table.remove(bubbles, i)
+    for i = #list, 1, -1 do
+        local b = list[i]
+        b.t = b.t + dt
+        local rise = 22 + b.r * 15
+        local cx, cy = Current.at(b.x, b.y, b.d)
+        -- Small bubbles zigzag; larger ones rock and spiral
+        local zig = sin(b.t * b.wobbleSpeed + b.phase) * b.wobble * (0.4 + b.r * 0.15)
+        b.vx = b.vx + (cx * 0.6 + zig - b.vx) * math.min(1, dt * 3)
+        b.x = b.x + b.vx * dt
+        b.y = b.y + (cy * 0.3 - rise) * dt
+        if b.y <= C.SURFACE_Y + b.r then
+            pops[#pops + 1] = { x = b.x, d = b.d, r = b.r }
+            table.remove(list, i)
         end
     end
 end
 
-function Bubble.draw(bubble)
-    local b = bubble
+function Bubble.drainPops()
+    local p = pops
+    pops = {}
+    return p
+end
 
-    -- Don't draw bubbles that haven't "started" yet (for cluster delays)
-    if b.time < 0 then return end
+function Bubble.all() return list end
 
-    -- Calculate warm sunset shimmer (golden-coral-magenta)
-    local shimmer = math.sin(b.time * b.shimmerSpeed + b.shimmerPhase)
-    local shimmerR = 1.0
-    local shimmerG = 0.75 + math.sin(b.time * b.shimmerSpeed + b.shimmerPhase + 2) * 0.15
-    local shimmerB = 0.6 + math.sin(b.time * b.shimmerSpeed + b.shimmerPhase + 4) * 0.2
-
-    -- Soft warm outer glow (for larger bubbles)
-    if b.displaySize > 3 then
-        love.graphics.setColor(1, 0.85, 0.75, b.alpha * 0.15)
-        love.graphics.circle("fill", b.x, b.y, b.displaySize * 1.4)
+function Bubble.draw(b, env)
+    local sx, sy, k = World.project(b.x, b.y, b.d)
+    local r = b.r * k
+    local lr, lg, lb = 0.85 + env.light[1] * 0.15, 0.95, 1.0
+    if r < 1.4 then
+        love.graphics.setColor(lr, lg, lb, 0.55)
+        love.graphics.circle("fill", sx, sy, math.max(0.7, r))
+        return
     end
+    local wob = sin(b.t * 9 + b.phase) * math.min(0.14, b.r * 0.03)
+    local rx, ry = r * (1 + wob), r * (1 - wob) * 0.94
 
-    -- Main bubble body with warm shimmer
-    love.graphics.setColor(shimmerR, shimmerG, shimmerB, b.alpha * 0.4)
-    love.graphics.circle("fill", b.x, b.y, b.displaySize)
-
-    -- Secondary color layer - warm amber tint
-    love.graphics.setColor(0.95, 0.7, 0.55, b.alpha * 0.25)
-    love.graphics.circle("fill", b.x + b.displaySize * 0.1, b.y + b.displaySize * 0.1, b.displaySize * 0.9)
-
-    -- Main highlight (top-left)
-    love.graphics.setColor(1, 1, 1, b.alpha * 0.85)
-    love.graphics.circle("fill",
-        b.x - b.displaySize * 0.3,
-        b.y - b.displaySize * 0.3,
-        b.displaySize * 0.28
-    )
-
-    -- Secondary smaller highlight
-    if b.displaySize > 2 then
-        love.graphics.setColor(1, 1, 1, b.alpha * 0.4)
-        love.graphics.circle("fill",
-            b.x + b.displaySize * 0.2,
-            b.y + b.displaySize * 0.35,
-            b.displaySize * 0.12
-        )
-    end
-
-    -- Warm sunset edge shimmer (golden to coral)
-    local edgeR = 1.0
-    local edgeG = 0.8 + math.sin(b.time * 4 + b.shimmerPhase) * 0.1
-    local edgeB = 0.6 + math.sin(b.time * 4 + b.shimmerPhase + 2.1) * 0.15
-
-    love.graphics.setColor(edgeR, edgeG, edgeB, b.alpha * 0.35)
-    love.graphics.setLineWidth(b.displaySize > 3 and 1.5 or 1)
-    love.graphics.circle("line", b.x, b.y, b.displaySize)
+    love.graphics.setColor(lr, lg, lb, 0.07)
+    love.graphics.ellipse("fill", sx, sy, rx, ry)
+    love.graphics.setLineWidth(0.6)
+    love.graphics.setColor(0.05, 0.1, 0.15, 0.18)
+    love.graphics.ellipse("line", sx, sy, rx * 0.72, ry * 0.72)
     love.graphics.setLineWidth(1)
+    love.graphics.setColor(lr, lg, lb, 0.62)
+    love.graphics.ellipse("line", sx, sy, rx, ry)
+    love.graphics.setColor(1, 1, 1, 0.92)
+    love.graphics.circle("fill", sx - rx * 0.36, sy - ry * 0.4, r * 0.26)
+    love.graphics.setColor(1, 1, 1, 0.35)
+    love.graphics.circle("fill", sx + rx * 0.34, sy + ry * 0.42, r * 0.14)
 end
 
 return Bubble

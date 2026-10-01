@@ -56,7 +56,7 @@ local function bakeBed()
         local sx, sy = World.project(x, World.floorY(x, d), d)
         local n = 0.04 * math.sin(x * 0.013 + d * 7) + 0.03 * math.sin(x * 0.041 - d * 13)
         local front = 0.94 + 0.06 * d
-        return { sx, sy, 0, 0, (0.74 + n) * front, (0.65 + n) * front, (0.50 + n * 0.8) * front, 1 }
+        return { sx, sy, 0, 0, (0.64 + n) * front, (0.56 + n) * front, (0.43 + n * 0.8) * front, 1 }
     end
     for i = 0, xs - 1 do
         local xa = x0 + (x1 - x0) * i / xs
