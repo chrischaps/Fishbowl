@@ -80,7 +80,7 @@ local function newFish(sp, key, index, saved)
         f.trust = saved.trust or 0
         f.fed = saved.fed or 0
     end
-    if sp.setup then sp.setup(f) end
+    if sp.setup then sp.setup(f, saved and saved.color) end
     f.mesh = Body.newMesh()
     pickWanderTarget(f)
     return f
@@ -110,7 +110,7 @@ function Fish.all() return all end
 function Fish.snapshot()
     local out = {}
     for _, f in ipairs(all) do
-        out[f.id] = { name = f.name, trust = f.trust, fed = f.fed }
+        out[f.id] = { name = f.name, trust = f.trust, fed = f.fed, color = f.colorIndex }
     end
     return out
 end

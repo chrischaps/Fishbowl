@@ -149,8 +149,9 @@ Species.betta = {
     top = { 0, 0.50, 0.80, 0.95, 1.00, 0.92, 0.75, 0.55, 0.48 },
     bot = { 0, 0.50, 0.80, 0.96, 1.00, 0.92, 0.75, 0.55, 0.48 },
     eye = { s = 0.10, r = 0.07, iris = { 0.30, 0.10, 0.10 } },
-    setup = function(f)
-        f.palette = bettaColors[math.random(#bettaColors)]
+    setup = function(f, colorIndex)
+        f.colorIndex = colorIndex or math.random(#bettaColors)
+        f.palette = bettaColors[f.colorIndex] or bettaColors[1]
     end,
     colors = function(s, v, f)
         local c = f.palette.body
@@ -186,8 +187,9 @@ Species.platy = {
     top = { 0, 0.50, 0.84, 1.00, 1.00, 0.86, 0.62, 0.44, 0.38 },
     bot = { 0, 0.48, 0.82, 1.00, 1.00, 0.86, 0.60, 0.42, 0.36 },
     eye = { s = 0.12, r = 0.075, iris = { 0.80, 0.60, 0.30 } },
-    setup = function(f)
-        f.color = platyColors[math.random(#platyColors)]
+    setup = function(f, colorIndex)
+        f.colorIndex = colorIndex or math.random(#platyColors)
+        f.color = platyColors[f.colorIndex] or platyColors[1]
     end,
     colors = function(s, v, f)
         local c = f.color
