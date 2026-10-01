@@ -4,7 +4,10 @@
 --   --snap <time of day> <seconds> strip <id> also film snaps/stripNN.png following a fish
 --   --selftest                               drive every interaction, report, quit
 --   --seed <n>                               try a different aquascape
+--   --script <file.lua>                      run a capture or test script; it runs before
+--                                            anything loads and may return { setup, update(time) }
 -- Pictures land in the LÖVE save directory (%APPDATA%/LOVE/Fishbowl/snaps).
+-- Scripts are looked up in the save directory first, then the project.
 
 local C = require("config")
 local World = require("world")
@@ -29,6 +32,9 @@ function Dev.parse(args)
             mode = { name = "selftest", at = 9, selftest = true, steps = {} }
         elseif a == "--seed" then
             C.SCAPE_SEED = tonumber(args[i + 1]) or C.SCAPE_SEED
+        elseif a == "--script" then
+            local chunk = assert(love.filesystem.load(args[i + 1]))
+            mode = { name = "script", hooks = chunk() or {} }
         end
     end
 end
@@ -38,6 +44,11 @@ function Dev.active() return mode ~= nil end
 --- Called after modules are initialized
 function Dev.setup()
     if not mode then return end
+    if mode.hooks then
+        love.audio.setVolume(0)
+        if mode.hooks.setup then mode.hooks.setup() end
+        return
+    end
     DayCycle.set(DayCycle.presets[mode.name] or DayCycle.presets.day)
     DayCycle.setSpeed(0)
     love.audio.setVolume(0)
@@ -102,6 +113,10 @@ end
 
 function Dev.update(time)
     if not mode then return end
+    if mode.hooks then
+        if mode.hooks.update then mode.hooks.update(time) end
+        return
+    end
     if mode.selftest then selftest(time) end
     if mode.strip and time > 2 then strip() end
     if mode.feed and time > 1 and not mode.fed then
