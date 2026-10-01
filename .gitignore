@@ -1,0 +1,7 @@
+# LÖVE build artifacts
+*.love
+dist/
+# Local snapshots from --snap / F12
+snaps/
+# Claude Code local settings
+.claude/settings.local.json
