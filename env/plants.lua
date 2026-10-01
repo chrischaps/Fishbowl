@@ -335,7 +335,13 @@ local function drawStem(p, env)
             for side = -1, 1, 2 do
                 local la = ang + side * (1.0 + 0.15 * sin(time + i)) - pi * 0.15 * side
                 love.graphics.setColor(r * 0.85, g * 0.85, b * 0.85, 1)
-                love.graphics.ellipse("fill", x + cos(la) * size * 0.8, y + sin(la) * size * 0.8, size * 0.95, size * 0.36, la)
+                love.graphics.push()
+                love.graphics.translate(x + cos(la) * size * 0.8, y + sin(la) * size * 0.8)
+                love.graphics.rotate(la)
+                love.graphics.ellipse("fill", 0, 0, size * 0.95, size * 0.36, 10)
+                love.graphics.setColor(r, g * 1.1, b, 0.5)
+                love.graphics.line(-size * 0.8, 0, size * 0.8, 0)
+                love.graphics.pop()
             end
         end
     end

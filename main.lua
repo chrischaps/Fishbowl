@@ -36,7 +36,13 @@ local hovered = nil
 local function parseArgs(args)
     for i, a in ipairs(args or {}) do
         if a == "--snap" then
-            snap = { name = args[i + 1] or "day", at = tonumber(args[i + 2]) or 4 }
+            -- --snap <time of day> <seconds> [feed]: render, save a PNG, quit
+            snap = { name = args[i + 1] or "day", at = tonumber(args[i + 2]) or 4, feed = args[i + 3] == "feed" }
+        elseif a == "--selftest" then
+            -- Drives every interaction on a timeline, then saves a picture and quits
+            snap = { name = "selftest", at = 9, selftest = true }
+        elseif a == "--seed" then
+            C.SCAPE_SEED = tonumber(args[i + 1]) or C.SCAPE_SEED
         end
     end
 end
@@ -44,7 +50,6 @@ end
 function love.load(args)
     parseArgs(args)
     love.graphics.setBackgroundColor(0, 0, 0)
-    math.randomseed(os.time())
 
     Scaling.init(C.W, C.H)
     Render.init()
@@ -55,9 +60,13 @@ function love.load(args)
     end
     Surface.init()
     Water.init()
+
+    math.randomseed(C.SCAPE_SEED)
     Substrate.init()
     Driftwood.init()
     Plants.init(Driftwood.anchors())
+    math.randomseed(os.time())
+
     Motes.init(140)
     Glass.init()
     Fish.init(Save.load())
@@ -73,19 +82,72 @@ function love.load(args)
 
     Debug.addGlobalInfo("Time of day", function() return env.name end)
     Debug.addGlobalInfo("Day speed", function() return DayCycle.getSpeed() .. "x" end)
-    Debug.addGlobalInfo("Bubbles", function() return #Bubble.all() end)
-    Debug.addGlobalInfo("Food", function() return #Food.all() end)
+    Debug.addGlobalInfo("Bubbles", function() return tostring(#Bubble.all()) end)
+    Debug.addGlobalInfo("Food", function() return tostring(#Food.all()) end)
 end
 
 --------------------------------------------------------------------------------
 -- Update
 --------------------------------------------------------------------------------
+local cursorOverride = nil
+
+local debugInfo = {
+    getDebugInfo = function()
+        local info = { { section = "Fish" } }
+        for _, f in ipairs(Fish.all()) do
+            if f.key ~= "neon" then
+                info[#info + 1] = { key = f.name, value = f.state .. string.format("  trust %.2f", f.trust) }
+            end
+        end
+        return info
+    end,
+}
+
+local function selftest()
+    local steps = snap.steps or {}
+    snap.steps = steps
+    local function at(t, name, fn)
+        if time >= t and not steps[name] then
+            steps[name] = true
+            print("[selftest] " .. name)
+            fn()
+        end
+    end
+    at(0.5, "feed", function() love.mousepressed(400, 300, 1) end)
+    at(1.5, "tap", function() love.mousepressed(700, 380, 2) end)
+    at(2.0, "keys", function()
+        for _, k in ipairs({ "]", "[", "h", "m", "r", "r", "t", "f11", "f12" }) do love.keypressed(k) end
+    end)
+    at(3.0, "hover", function()
+        local f = Fish.all()[1]
+        local sx, sy = World.project(f.x, f.y, f.z)
+        cursorOverride = { sx, sy }
+    end)
+    at(4.5, "resize", function() love.resize(1000, 700) end)
+    at(4.8, "save", function()
+        Save.write(Fish.snapshot())
+        local back = Save.load()
+        local f = Fish.all()[1]
+        print("[selftest] save round trip: " .. tostring(back and back[f.id] and back[f.id].name == f.name))
+    end)
+    at(5.0, "night", function()
+        love.keypressed("h")
+        love.keypressed("m")
+        DayCycle.set(DayCycle.presets.night)
+    end)
+end
+
 local function updateCursor(dt)
     local mx, my = love.mouse.getPosition()
     local gx, gy = Scaling.toGame(mx, my)
+    if cursorOverride then
+        local f = Fish.all()[1]
+        cursorOverride[1], cursorOverride[2] = World.project(f.x, f.y, f.z)
+        gx, gy = cursorOverride[1], cursorOverride[2]
+    end
     local moved = math.abs(gx - cursor.x) + math.abs(gy - cursor.y)
     cursor.x, cursor.y = gx, gy
-    cursor.active = love.window.hasMouseFocus() and gx > 0 and gx < C.W and gy > C.SURFACE_Y and gy < C.H
+    cursor.active = (cursorOverride or love.window.hasMouseFocus()) and gx > 0 and gx < C.W and gy > C.SURFACE_Y and gy < C.H
     if moved < 2 then
         cursor.still = cursor.still + dt
     else
@@ -153,9 +215,16 @@ function love.update(dt)
     end
 
     if snap then
+        if snap.selftest then selftest() end
+        if snap.feed and time > 1 and not snap.fed then
+            snap.fed = true
+            Food.sprinkle(560)
+            Food.sprinkle(760)
+        end
         if time >= snap.at and not snap.taken then
             love.filesystem.createDirectory("snaps")
             love.graphics.captureScreenshot("snaps/" .. snap.name .. ".png")
+            print(string.format("[snap] %s  fps %d", snap.name, love.timer.getFPS()))
             snap.taken = time
         elseif snap.taken and time > snap.taken + 0.3 then
             love.event.quit()
@@ -298,7 +367,7 @@ function love.draw()
     UI.draw(Fish.mood)
     love.graphics.pop()
 
-    Debug.draw()
+    Debug.draw(debugInfo)
 end
 
 --------------------------------------------------------------------------------

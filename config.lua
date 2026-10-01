@@ -21,4 +21,8 @@ C.CYCLE_SECONDS = 600       -- one full day/night cycle
 
 C.BUBBLER_X, C.BUBBLER_D = 150, 0.22
 
+-- The aquascape (rocks, wood, plants) is composed from a fixed seed so the
+-- tank looks the same every visit; the fish are free to do as they like.
+C.SCAPE_SEED = 2
+
 return C
