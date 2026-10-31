@@ -75,7 +75,7 @@ function UI.draw(moodOf)
         love.graphics.rectangle("fill", 440, 200, 400, 300, 14, 14)
         softText(titleFont, "Fishbowl", 440, 222, a, "center", 400)
         local lines = {
-            "click            sprinkle food",
+            "click, space     sprinkle food",
             "right click      tap the glass",
             "rest the cursor  meet a fish",
             "T                skip ahead in the day",

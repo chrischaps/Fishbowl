@@ -2,7 +2,10 @@
 --   --snap <time of day> <seconds>           save snaps/<time of day>.png and quit
 --   --snap <time of day> <seconds> feed      ...after sprinkling food at 1s
 --   --snap <time of day> <seconds> strip <id> also film snaps/stripNN.png following a fish
---   --selftest                               drive every interaction, report, quit
+--   --selftest                               drive every interaction, report, quit: exit 0 if
+--                                            every check held, 1 if one failed or the game erred
+--   --bench <seconds>                        time that many seconds of frames, after 3 s to settle,
+--                                            print median / p95 / worst, quit (try it with --frame)
 --   --seed <n>                               try a different aquascape
 --   --script <file.lua>                      run a capture or test script; it runs before
 --                                            anything loads and may return { setup, update(time) }
@@ -15,11 +18,22 @@ local DayCycle = require("env.daycycle")
 local Fish = require("fish")
 local Food = require("food")
 local Save = require("save")
+local Frame = require("frame")
 
 local Dev = {}
 
 local mode = nil
 local cursorOverride = nil
+
+-- A test that errs has to say so and exit, not wait on LÖVE's error screen:
+-- Easel runs --selftest as a release's smoke test, with no one to close it
+local function exitOnError(tag)
+    function love.errorhandler(msg)
+        print(debug.traceback(string.format("[%s] FAIL %s", tag, tostring(msg)), 2))
+        io.stdout:flush()
+        return function() return 1 end
+    end
+end
 
 function Dev.parse(args)
     for i, a in ipairs(args or {}) do
@@ -29,7 +43,14 @@ function Dev.parse(args)
                 feed = args[i + 3] == "feed", strip = args[i + 3] == "strip" and args[i + 4],
             }
         elseif a == "--selftest" then
-            mode = { name = "selftest", at = 9, selftest = true, steps = {} }
+            mode = { name = "selftest", at = 9, selftest = true, steps = {}, failed = 0 }
+            -- a tank of its own, fresh each time
+            Save.use("selftest-tank.lua")
+            love.filesystem.remove("selftest-tank.lua")
+            exitOnError("selftest")
+        elseif a == "--bench" then
+            mode = { name = "day", bench = tonumber(args[i + 1]) or 20, times = {} }
+            exitOnError("bench")
         elseif a == "--seed" then
             C.SCAPE_SEED = tonumber(args[i + 1]) or C.SCAPE_SEED
         elseif a == "--script" then
@@ -71,10 +92,31 @@ local function selftest(time)
             fn()
         end
     end
-    at(0.5, "feed", function() love.mousepressed(400, 300, 1) end)
+    local function check(what, ok)
+        print(string.format("[selftest]   %s: %s", ok and "ok" or "FAIL", what))
+        if not ok then mode.failed = mode.failed + 1 end
+    end
+    -- the flakes in the water before this frame's step (nothing eats them in
+    -- the middle of Dev.update)
+    local food = #Food.all()
+    if Frame.active() then
+        at(0.2, "frame", function()
+            local _, _, flags = love.window.getMode()
+            check("the frame is fullscreen, borderless and has no cursor",
+                love.window.getFullscreen() and flags.borderless and not love.mouse.isVisible())
+        end)
+    end
+    -- a click on a desktop, a tap on the frame
+    at(0.5, "feed", function()
+        love.mousepressed(400, 300, 1)
+        love.mousereleased(400, 300, 1)
+        check("a click feeds the fish", #Food.all() > food)
+    end)
     at(1.5, "tap", function() love.mousepressed(700, 380, 2) end)
     at(2.0, "keys", function()
         for _, k in ipairs({ "]", "[", "h", "m", "r", "r", "t", "f11", "f12" }) do love.keypressed(k) end
+        love.keypressed("space")
+        check("the button's key (space) feeds the fish", #Food.all() > food)
     end)
     at(3.0, "hover", function() cursorOverride = true end)
     at(4.5, "resize", function() love.resize(1000, 700) end)
@@ -82,12 +124,35 @@ local function selftest(time)
         Save.write(Fish.snapshot())
         local back = Save.load()
         local f = Fish.all()[1]
-        print("[selftest] save round trip: " .. tostring(back and back[f.id] and back[f.id].name == f.name))
+        check("the tank saves and loads (" .. Save.file() .. ")",
+            back and back[f.id] and back[f.id].name == f.name)
     end)
     at(5.0, "night", function()
         love.keypressed("h")
         love.keypressed("m")
         DayCycle.set(DayCycle.presets.night)
+    end)
+    -- a finger on the frame's glass (frame.lua), driven directly so it's
+    -- checked whether or not this run is --frame
+    at(5.2, "finger tap", function()
+        Frame.press("selftest", 640, 360)
+        Frame.release("selftest", 640, 360)
+        check("a tap on the glass feeds the fish", #Food.all() > food)
+        check("a tap isn't a hand", Frame.hand() == nil)
+    end)
+    at(5.4, "finger held", function() Frame.press("selftest", 500, 420) end)
+    at(5.4 + Frame.HOLD + 0.3, "finger lifted", function()
+        check("a finger held on the glass is a hand", Frame.hand() ~= nil)
+        Frame.release("selftest", 500, 420)
+        check("a hand doesn't feed the fish", #Food.all() == food)
+        check("a lifted hand has gone", Frame.hand() == nil)
+    end)
+    at(6.5, "a guest who taps and taps", function()
+        for _ = 1, 200 do
+            Frame.press("selftest", 640, 360)
+            Frame.release("selftest", 640, 360)
+        end
+        check("the tank takes no more than " .. Food.MAX .. " flakes", #Food.all() <= Food.MAX)
     end)
 end
 
@@ -111,10 +176,31 @@ local function strip()
     end
 end
 
+-- Frame times as the screen sees them: love.timer's delta is the whole of a
+-- frame, its wait for vsync included, so 60 fps reads as about 16.7 ms
+local function bench(time)
+    local settle = 3
+    if time < settle then return end
+    local t = mode.times
+    t[#t + 1] = love.timer.getDelta() * 1000
+    if time < settle + mode.bench then return end
+    table.sort(t)
+    local function q(p) return t[math.max(1, math.ceil(#t * p))] end
+    print(string.format("[bench] %d frames at %dx%d, %s: median %.2f ms, p95 %.2f, worst %.2f (%.1f fps)",
+        #t, love.graphics.getWidth(), love.graphics.getHeight(), DayCycle.env.name or "?",
+        q(0.5), q(0.95), t[#t], #t / mode.bench))
+    io.stdout:flush()
+    love.event.quit(0)
+end
+
 function Dev.update(time)
     if not mode then return end
     if mode.hooks then
         if mode.hooks.update then mode.hooks.update(time) end
+        return
+    end
+    if mode.bench then
+        bench(time)
         return
     end
     if mode.selftest then selftest(time) end
@@ -130,7 +216,13 @@ function Dev.update(time)
         print(string.format("[snap] %s  fps %d", mode.name, love.timer.getFPS()))
         mode.taken = time
     elseif mode.taken and time > mode.taken + 0.3 then
-        love.event.quit()
+        if mode.selftest then
+            print(mode.failed == 0 and "[selftest] all checks held"
+                or string.format("[selftest] FAIL %d check(s)", mode.failed))
+            love.event.quit(mode.failed == 0 and 0 or 1)
+        else
+            love.event.quit()
+        end
     end
 end
 

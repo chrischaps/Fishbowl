@@ -1,0 +1,2 @@
+# shell scripts run on Linux (CI, the frame): keep them LF in every checkout
+*.sh text eol=lf

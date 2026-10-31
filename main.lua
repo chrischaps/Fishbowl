@@ -25,6 +25,7 @@ local Ambience = require("audio.ambience")
 local UI = require("ui")
 local Save = require("save")
 local Dev = require("dev")
+local Frame = require("frame")
 
 local env = DayCycle.env
 local time = 0
@@ -35,6 +36,7 @@ local hovered = nil
 
 function love.load(args)
     Dev.parse(args)
+    Frame.parse(args)
     love.graphics.setBackgroundColor(0, 0, 0)
 
     Scaling.init(C.W, C.H)
@@ -55,6 +57,7 @@ function love.load(args)
     UI.init()
     Ambience.init()
     Dev.setup()
+    Frame.setup()
 
     PostFX.init(C.W, C.H, {
         distortion = { enabled = true, strength = 0.0010, speed = 0.5 },
@@ -83,14 +86,24 @@ local debugInfo = {
     end,
 }
 
+-- The cursor the fish know: the mouse on a desktop, a hand resting on the
+-- glass on the frame (frame.lua), or the self-test's stand-in
 local function updateCursor(dt)
-    local mx, my = love.mouse.getPosition()
-    local gx, gy = Scaling.toGame(mx, my)
-    local ox, oy = Dev.cursor()
-    if ox then gx, gy = ox, oy end
+    local gx, gy = Dev.cursor()
+    local present = gx ~= nil
+    if present then
+        -- the self-test's
+    elseif Frame.active() then
+        gx, gy = Frame.hand()
+        present = gx ~= nil
+        if not present then gx, gy = cursor.x, cursor.y end
+    else
+        gx, gy = Scaling.toGame(love.mouse.getPosition())
+        present = love.window.hasMouseFocus()
+    end
     local moved = math.abs(gx - cursor.x) + math.abs(gy - cursor.y)
     cursor.x, cursor.y = gx, gy
-    cursor.active = (ox or love.window.hasMouseFocus()) and gx > 0 and gx < C.W and gy > C.SURFACE_Y and gy < C.H
+    cursor.active = present and gx > 0 and gx < C.W and gy > C.SURFACE_Y and gy < C.H
     if moved < 2 then
         cursor.still = cursor.still + dt
     else
@@ -130,6 +143,7 @@ function love.update(dt)
     dt = math.min(dt, 1 / 20)
     time = time + dt
 
+    Frame.update(dt)
     updateCursor(dt)
     DayCycle.update(dt)
     DayCycle.applyPost(PostFX)
@@ -305,7 +319,34 @@ end
 --------------------------------------------------------------------------------
 -- Input
 --------------------------------------------------------------------------------
-function love.mousepressed(x, y, button)
+-- On the frame a finger is all there is (frame.lua). SDL also reports each
+-- touch as a mouse event marked istouch; those are left to the touch
+-- callbacks, so a panel that sends either kind is read once.
+function love.touchpressed(id, x, y)
+    if Frame.active() then Frame.press(id, x, y) end
+end
+
+function love.touchmoved(id, x, y)
+    if Frame.active() then Frame.move(id, x, y) end
+end
+
+function love.touchreleased(id, x, y)
+    if Frame.active() then Frame.release(id, x, y) end
+end
+
+function love.mousemoved(x, y, dx, dy, istouch)
+    if Frame.active() and not istouch then Frame.move("mouse", x, y) end
+end
+
+function love.mousereleased(x, y, button, istouch)
+    if Frame.active() and button == 1 and not istouch then Frame.release("mouse", x, y) end
+end
+
+function love.mousepressed(x, y, button, istouch)
+    if Frame.active() then
+        if button == 1 and not istouch then Frame.press("mouse", x, y) end
+        return
+    end
     local gx, gy = Scaling.toGame(x, y)
     if button == 1 then
         Food.sprinkle(gx)
@@ -318,7 +359,11 @@ end
 
 function love.keypressed(key)
     PostFX.handleKeyPress(key)
-    if key == "t" then
+    if key == "space" then
+        -- a pinch somewhere along the middle of the tank: on the frame, its
+        -- button feeds the fish
+        Food.sprinkle(C.W * (0.3 + math.random() * 0.4))
+    elseif key == "t" then
         DayCycle.skip()
     elseif key == "[" or key == "]" then
         local s = DayCycle.getSpeed()
