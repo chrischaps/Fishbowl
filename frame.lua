@@ -27,7 +27,7 @@ local Frame = {}
 
 Frame.HOLD = 0.35  -- seconds a finger stays before it's a hand, not a tap
 Frame.DRIFT = 24   -- how far (game px) a tap may wander and still be a tap
-Frame.RING = 0.35  -- how hard a touch rings the glass (a right-click tap is 1)
+Frame.RING = 0.6   -- how hard a touch rings the glass (a right-click tap is 1)
 
 local on = false
 local finger = nil -- the one finger we follow: { id, x, y, x0, y0, t, held }
