@@ -59,8 +59,9 @@ function Glass.init()
     snail = newSnail()
 end
 
-function Glass.tap(x, y)
-    tap.x, tap.y, tap.age, tap.strength = x, y, 0, 1
+--- A tap on the glass at x, y: strength 1 is a knuckle, less a fingertip
+function Glass.tap(x, y, strength)
+    tap.x, tap.y, tap.age, tap.strength = x, y, 0, strength or 1
 end
 
 function Glass.tapUniform()

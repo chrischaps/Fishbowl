@@ -30,9 +30,14 @@ local function flakeShape(size)
     return pts
 end
 
+-- The most flakes in the water at once. A wall frame has guests who tap and
+-- tap; past this the tank has had enough, and a pinch does nothing.
+Food.MAX = 300
+
 --- Sprinkle a pinch of flakes at screen x
 function Food.sprinkle(sx)
-    local n = random(6, 10)
+    local n = math.min(random(6, 10), Food.MAX - #list)
+    if n <= 0 then return end
     for _ = 1, n do
         local d = 0.5 + random() * 0.45
         local wx = World.unproject(sx + (random() - 0.5) * 50, 0, d)

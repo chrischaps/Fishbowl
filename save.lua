@@ -5,6 +5,12 @@ local Save = {}
 
 local FILE = "tank.lua"
 
+--- Keep the tank in another file. The self-test uses its own, so a test
+--- never meets, feeds or renames the fish you know.
+function Save.use(file) FILE = file end
+
+function Save.file() return FILE end
+
 local function serialize(v, indent)
     indent = indent or ""
     if type(v) == "table" then
