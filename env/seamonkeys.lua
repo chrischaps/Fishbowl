@@ -3,7 +3,8 @@
 -- flicker of feathery legs: a short dart tilted upward, then a slow drift down.
 -- They keep loosely together, follow the light across the tank as the day
 -- turns, and crowd a passing flake without eating it. At night they sink lower
--- and rest longer between darts.
+-- and rest longer between darts. A tap on the glass scatters the ones near it,
+-- and a few seconds later they have drifted back together.
 --
 -- Each is a thing in the water, sorted by depth with the plants and the fish
 -- (main.lua), so they pass in front of one leaf and behind the next.
@@ -32,6 +33,10 @@ local FLOOR_GAP = 16     -- world px, above the sand and the rocks
 local DRAG = 3.4         -- how fast a dart dies away (1/s)
 local CURRENT = 0.45     -- how much the water carries them
 local REACH = 240        -- how far off a flake is noticed (px)
+
+local FLEE = 340         -- the hardest a tap can send one off (px/s): about 100 px before drag stops it
+local FRIGHT = 5         -- seconds for a full scare to wear off: at first each one
+                         -- goes its own way, then it looks for the others
 
 local list = {}
 local time = 0
@@ -79,6 +84,7 @@ local function newSeaMonkey(cx, cy)
         phase = random() * 10,
         beat = random(),
         kick = 0,                          -- 1 just after a dart, fading
+        scare = 0,                         -- 1 just after a tap on the glass, fading
         face = random() < 0.5 and -1 or 1, -- -1 facing left .. 1 facing right, through a roll
         pitch = 0,
     }
@@ -119,7 +125,11 @@ local function dart(m, ctx)
     -- Back toward the others once too far out; a looser crowd at night
     local dx, dy, dz = colony.x - m.x, colony.y - m.y, (colony.d - m.d) * DEPTH
     local dist = sqrt(dx * dx + dy * dy + dz * dz) + 0.001
-    local pull = math.max(0, dist - lerp(170, 105, activity)) / 110
+    -- Straight after a scare it wants nothing, not the others, the light or its
+    -- place in the water. Then, until the scare has worn off, it wants company.
+    local calm = 1 - smoothstep(0.6, 0.85, m.scare)
+    local lonely = smoothstep(0, 0.2, m.scare) * calm
+    local pull = math.max(0, dist - lerp(lerp(170, 105, activity), 30, lonely)) / lerp(110, 60, lonely) * calm
     gx, gy, gz = gx + dx / dist * pull, gy + dy / dist * pull, gz + dz / dist * pull * 0.5
 
     -- ...but not on top of anyone
@@ -139,16 +149,16 @@ local function dart(m, ctx)
     -- by day. By moonlight the pull is faint and they hang lower.
     local lightX = World.unproject(env.sun_x + m.offset + sin(time * 0.04 + 1.3) * 170, 0, m.d)
     local wantY = lerp(440, 170, activity) + m.band
-    gx = gx + clamp((lightX - m.x) / 260, -1, 1) * (0.25 + 0.75 * activity)
+    gx = gx + clamp((lightX - m.x) / 260, -1, 1) * (0.25 + 0.75 * activity) * calm
     gz = gz + clamp((m.home - m.d) * DEPTH / 110, -1, 1)
 
     -- Every dart tilts upward. How much depends on how far below where it
     -- wants to be; only the slow sink between darts ever takes one down.
-    local up = 0.5 + 0.5 * clamp((m.y - wantY) / 120, -0.8, 1)
+    local up = 0.5 + 0.5 * clamp((m.y - wantY) / 120, -0.8, 1) * calm
 
     -- A flake in reach outweighs all that
     local flake, flakeD = nearestFlake(m, ctx.foods)
-    local eager = 0
+    local eager = lonely
     if flake then
         eager = 1
         local n = flakeD + 0.001
@@ -179,6 +189,32 @@ local function dart(m, ctx)
     SeaMonkeys.darts = SeaMonkeys.darts + 1
 end
 
+--- A tap on the glass at screen (sx, sy). The ones near it flee, off the glass
+--- as well as away from the finger; by moonlight they are only stirred. The
+--- flight is only a velocity, so update()'s clamps and drag still hold it.
+function SeaMonkeys.startle(sx, sy)
+    for _, m in ipairs(list) do
+        local px, py = World.project(m.x, m.y, m.d)
+        local dx, dy = px - sx, py - sy
+        local dist = sqrt(dx * dx + dy * dy)
+        local fear = 1 - dist / (170 + m.d * 190) -- the glass carries further to one close by
+        if fear > 0.1 then
+            if dist < 1 then -- right under the finger: any way out will do
+                local a = random() * pi * 2
+                dx, dy, dist = cos(a), sin(a), 1
+            end
+            fear = fear * lerp(0.4, 1, activity)
+            local speed = FLEE * fear
+            m.vx, m.vy = dx / dist * speed, dy / dist * speed
+            m.vd = -speed * 0.5
+            m.kick = 1
+            m.scare = math.max(m.scare, math.min(1, fear * 2))
+            -- Stunned for a moment, not all for the same one
+            m.rest = math.max(m.rest, 0.5 + fear * 0.6 + random() * 0.5)
+        end
+    end
+end
+
 function SeaMonkeys.update(dt, ctx)
     time = time + dt
     local env = ctx.env
@@ -191,6 +227,7 @@ function SeaMonkeys.update(dt, ctx)
 
     local drag = exp(-dt * DRAG)
     for _, m in ipairs(list) do
+        m.scare = math.max(0, m.scare - dt / FRIGHT * lerp(0.4, 1, activity)) -- slower for a slow swimmer
         m.rest = m.rest - dt
         if m.rest <= 0 then dart(m, ctx) end
 

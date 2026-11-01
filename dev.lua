@@ -22,6 +22,7 @@ local Frame = require("frame")
 local SeaMonkeys = require("env.seamonkeys")
 local Substrate = require("env.substrate")
 local Plants = require("env.plants")
+local Scaling = require("LoveLibs.graphics.scaling")
 
 local Dev = {}
 
@@ -126,6 +127,102 @@ local function swim(phase, seconds, foods)
     }
 end
 
+-- How far from the middle of them they are, on the screen, and that middle
+local function spreadOf()
+    local all = SeaMonkeys.all()
+    local cx, cy, sum = 0, 0, 0
+    for _, m in ipairs(all) do
+        local sx, sy = World.project(m.x, m.y, m.d)
+        cx, cy = cx + sx / #all, cy + sy / #all
+    end
+    for _, m in ipairs(all) do
+        local sx, sy = World.project(m.x, m.y, m.d)
+        sum = sum + math.sqrt((sx - cx) ^ 2 + (sy - cy) ^ 2) / #all
+    end
+    return sum, cx, cy
+end
+
+-- One sea monkey held still (no darts of its own) mid-water, tapped from dist
+-- px away: how much farther from the tap it is a second later, and its legs
+local function flinch(phase, dist)
+    DayCycle.set(phase)
+    local ctx = { env = DayCycle.env, foods = {}, rocks = Substrate.getRocks() }
+    SeaMonkeys.init(C.SEAMONKEYS)
+    SeaMonkeys.update(1 / 60, ctx) -- to take in the time of day
+    local m = SeaMonkeys.all()[1]
+    local sx, sy = C.CX, C.CY
+    m.d = 0.5
+    m.x, m.y = World.unproject(sx + dist, sy, m.d)
+    m.vx, m.vy, m.vd, m.kick, m.rest = 0, 0, 0, 0, 10
+    SeaMonkeys.startle(sx, sy)
+    local legs = m.kick
+    for _ = 1, 60 do SeaMonkeys.update(1 / 60, ctx) end
+    local px, py = World.project(m.x, m.y, m.d)
+    return math.sqrt((px - sx) ^ 2 + (py - sy) ^ 2) - dist, legs
+end
+
+local function checkScatter(check)
+    -- Near the tap, far from it, and by moonlight
+    local near, legs = flinch(DayCycle.presets.day, 50)
+    local far = flinch(DayCycle.presets.day, 500)
+    local night = flinch(DayCycle.presets.night, 50)
+    check(string.format("one beside a tap darts off with its legs racing (%.0f px)", near), near > 40 and legs == 1)
+    check(string.format("one far from a tap is barely disturbed (%.1f px)", far), math.abs(far) < 12)
+    check(string.format("by moonlight a tap stirs one more gently (%.0f px)", night), night > 10 and night < near * 0.6)
+
+    -- A tap in the middle of them: they burst outward, then draw together again
+    DayCycle.set(DayCycle.presets.day)
+    local ctx = { env = DayCycle.env, foods = {}, rocks = Substrate.getRocks() }
+    SeaMonkeys.init(C.SEAMONKEYS)
+    for _ = 1, 20 * 60 do SeaMonkeys.update(1 / 60, ctx) end
+    local before, cx, cy = spreadOf()
+    SeaMonkeys.startle(cx, cy)
+    local fleeing, nearby = 0, 0
+    for _, m in ipairs(SeaMonkeys.all()) do
+        local sx, sy = World.project(m.x, m.y, m.d)
+        if (sx - cx) ^ 2 + (sy - cy) ^ 2 < 120 * 120 then
+            nearby = nearby + 1
+            if m.vx * (sx - cx) + m.vy * (sy - cy) > 0 then fleeing = fleeing + 1 end
+        end
+    end
+    check(string.format("a tap in their midst sends the near ones away from it (%d of %d)", fleeing, nearby),
+        nearby > 0 and fleeing == nearby)
+    for _ = 1, 60 do SeaMonkeys.update(1 / 60, ctx) end
+    local burst = spreadOf()
+    for _ = 1, 5 * 60 do SeaMonkeys.update(1 / 60, ctx) end
+    local after = spreadOf()
+    check(string.format("they scatter (%.0f px to %.0f px)", before, burst), burst > before + 25)
+    check(string.format("and drift back together (%.0f px, 6 s after the tap)", after), after < burst * 0.75)
+
+    -- Hard against every corner of the tank, tapped from the inside so that
+    -- fleeing means going through the glass, the surface or the sand
+    local out = 0
+    for corner = 0, 7 do
+        for _, m in ipairs(SeaMonkeys.all()) do
+            m.d = corner % 2 == 0 and 0.08 or 0.92
+            local lo, hi = World.xBounds(m.d, 34)
+            m.x = corner % 4 < 2 and lo or hi
+            m.y = corner < 4 and C.SURFACE_Y + 24 or World.floorY(m.x, m.d) - 20
+        end
+        for step = 1, 2 * 60 do
+            if step % 20 == 1 then -- and again, and again
+                local m = SeaMonkeys.all()[1]
+                local sx, sy = World.project(m.x, m.y, m.d)
+                SeaMonkeys.startle(sx + (sx < C.CX and 40 or -40), sy + (sy < C.CY and 40 or -40))
+            end
+            SeaMonkeys.update(1 / 60, ctx)
+            for _, m in ipairs(SeaMonkeys.all()) do
+                local lo, hi = World.xBounds(m.d, 0)
+                if m.x < lo or m.x > hi or m.d <= 0 or m.d >= 1
+                    or m.y <= C.SURFACE_Y or m.y >= World.floorY(m.x, m.d) then
+                    out = out + 1
+                end
+            end
+        end
+    end
+    check("a tap can't drive one through the glass, the surface or the sand", out == 0)
+end
+
 local function checkSeaMonkeys(check)
     local expected = Frame.active() and C.SEAMONKEYS_FRAME or C.SEAMONKEYS
     check("the tank has " .. expected .. " sea monkeys", #SeaMonkeys.all() == expected)
@@ -174,6 +271,8 @@ local function checkSeaMonkeys(check)
     for _ = 1, 6 * 60 do SeaMonkeys.update(1 / 60, ctx) end
     check(string.format("they gather to a flake (%.0f px to %.0f px)", far, meanDistance()), meanDistance() < far * 0.6)
 
+    checkScatter(check)
+
     -- Back to the tank as it was
     DayCycle.set(phase)
     SeaMonkeys.init(expected)
@@ -208,7 +307,18 @@ local function selftest(time)
         love.mousereleased(400, 300, 1)
         check("a click feeds the fish", #Food.all() > food)
     end)
-    at(1.5, "tap", function() love.mousepressed(700, 380, 2) end)
+    at(1.5, "tap", function()
+        -- one placed right beside the tap, to see it reach them through main.lua
+        -- (on the frame there is no right-click, and a touch feeds them instead)
+        local gx, gy = Scaling.toGame(700, 380)
+        local m = SeaMonkeys.all()[1]
+        m.x, m.y = World.unproject(gx + 50, gy, m.d)
+        m.vx, m.vy, m.kick = 0, 0, 0
+        love.mousepressed(700, 380, 2)
+        if not Frame.active() then
+            check("a right-click on the glass startles the sea monkey beside it", m.vx > 0 and m.kick == 1)
+        end
+    end)
     at(2.0, "keys", function()
         for _, k in ipairs({ "]", "[", "h", "m", "r", "r", "t", "f11", "f12" }) do love.keypressed(k) end
         love.keypressed("space")
