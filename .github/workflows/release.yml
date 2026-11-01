@@ -5,8 +5,13 @@
 # Publishing by hand stays the gate, as in Terrarium. A tag with a hyphen
 # (v0.1.0-frame.1) drafts a prerelease.
 #
-# Linux only: Windows runners have no OpenGL 2.1 for LÖVE's window, and the
-# frame is Linux. xvfb's Mesa draws the shaders in software.
+# The checks run on Linux: Windows runners have no OpenGL 2.1 for LÖVE's
+# window, and the frame is Linux. xvfb's Mesa draws the shaders in software.
+# The Windows job only wraps the .love those checks passed in an exe, for the
+# download on chaps.dev (scripts/package-windows.ps1). It can't open a window
+# there, so the zip gets tried by hand before the draft is published.
+#
+# SHA256SUMS stays about fishbowl.love alone, since it's Easel's to read.
 name: release
 
 on:
@@ -59,9 +64,35 @@ jobs:
       - name: Check the packed tank
         run: xvfb-run -a -s "-screen 0 1280x720x24" sh tests/ci.sh
 
+  windows:
+    needs: check
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4 # for the script, the icon and the readme
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: fishbowl
+          path: dist
+
+      - name: Wrap the checked tank in an exe
+        shell: pwsh
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          $version = if ($env:REF_TYPE -eq "tag") { $env:REF_NAME -replace '^v', '' } else { "dev" }
+          ./scripts/package-windows.ps1 -Version $version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fishbowl-windows
+          path: dist/fishbowl-*-windows-x64.zip
+          if-no-files-found: error
+
   draft:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: check
+    needs: [check, windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -71,6 +102,11 @@ jobs:
           name: fishbowl
           path: dist
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: fishbowl-windows
+          path: dist
+
       - name: Draft the release (notes are written by hand before publishing)
         env:
           GH_TOKEN: ${{ github.token }}
@@ -78,5 +114,5 @@ jobs:
         run: |
           cd dist && sha256sum -c SHA256SUMS
           case "$TAG" in *-*) pre=--prerelease ;; *) pre= ;; esac
-          gh release create "$TAG" fishbowl.love SHA256SUMS --repo "$GITHUB_REPOSITORY" \
+          gh release create "$TAG" fishbowl.love SHA256SUMS fishbowl-*-windows-x64.zip --repo "$GITHUB_REPOSITORY" \
             --verify-tag --draft $pre --title "Fishbowl ${TAG#v}" --notes "Draft: notes to follow."
