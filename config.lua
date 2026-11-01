@@ -21,6 +21,9 @@ C.CYCLE_SECONDS = 600       -- one full day/night cycle
 
 C.BUBBLER_X, C.BUBBLER_D = 150, 0.36
 
+C.SEAMONKEYS = 16           -- brine shrimp in the tank
+C.SEAMONKEYS_FRAME = 8      -- ...on the wall frame, whose GPU has little to spare
+
 -- The aquascape (rocks, wood, plants) is composed from a fixed seed so the
 -- tank looks the same every visit; the fish are free to do as they like.
 C.SCAPE_SEED = 2
