@@ -68,7 +68,8 @@ Copy-Item "$unpacked/love.exe" $base
 & $rcedit $base `
     --set-icon "scripts/windows/fishbowl.ico" `
     --set-file-version $numeric `
-    --set-product-version $Version `
+    --set-product-version $numeric `
+    --set-version-string "ProductVersion" $Version `
     --set-version-string "FileDescription" "Fishbowl" `
     --set-version-string "ProductName" "Fishbowl" `
     --set-version-string "InternalName" "Fishbowl" `
