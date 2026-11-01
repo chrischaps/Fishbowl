@@ -19,6 +19,9 @@ local Fish = require("fish")
 local Food = require("food")
 local Save = require("save")
 local Frame = require("frame")
+local SeaMonkeys = require("env.seamonkeys")
+local Substrate = require("env.substrate")
+local Plants = require("env.plants")
 
 local Dev = {}
 
@@ -81,6 +84,99 @@ function Dev.cursor()
     local f = Fish.all()[1]
     local sx, sy = World.project(f.x, f.y, f.z)
     return sx, sy
+end
+
+-- The sea monkeys, swum fast in a colony of their own at each time of day:
+-- how busy they are, how spread out, and whether any left the tank
+local function swim(phase, seconds, foods)
+    DayCycle.set(phase)
+    local ctx = { env = DayCycle.env, foods = foods or {}, rocks = Substrate.getRocks() }
+    local dt = 1 / 60
+    SeaMonkeys.init(C.SEAMONKEYS)
+    for _ = 1, 20 * 60 do SeaMonkeys.update(dt, ctx) end -- let them settle in
+    local before = SeaMonkeys.darts
+    local out, path, spread = 0, 0, 0
+    local steps = seconds * 60
+    for _ = 1, steps do
+        local was = {}
+        for i, m in ipairs(SeaMonkeys.all()) do was[i] = { m.x, m.y } end
+        SeaMonkeys.update(dt, ctx)
+        local cx, cy = 0, 0
+        for i, m in ipairs(SeaMonkeys.all()) do
+            path = path + math.sqrt((m.x - was[i][1]) ^ 2 + (m.y - was[i][2]) ^ 2)
+            cx, cy = cx + m.x, cy + m.y
+            local lo, hi = World.xBounds(m.d, 0)
+            if m.x < lo or m.x > hi or m.d <= 0 or m.d >= 1
+                or m.y <= C.SURFACE_Y or m.y >= World.floorY(m.x, m.d) then
+                out = out + 1
+            end
+        end
+        local n = #SeaMonkeys.all()
+        cx, cy = cx / n, cy / n
+        for _, m in ipairs(SeaMonkeys.all()) do
+            spread = spread + math.sqrt((m.x - cx) ^ 2 + (m.y - cy) ^ 2) / n
+        end
+    end
+    local n = #SeaMonkeys.all()
+    return {
+        out = out,
+        darts = (SeaMonkeys.darts - before) / (n * seconds), -- per sea monkey per second
+        speed = path / (n * seconds),                        -- px/s
+        spread = spread / steps,                             -- px from the middle of them
+    }
+end
+
+local function checkSeaMonkeys(check)
+    local expected = Frame.active() and C.SEAMONKEYS_FRAME or C.SEAMONKEYS
+    check("the tank has " .. expected .. " sea monkeys", #SeaMonkeys.all() == expected)
+
+    local phase = DayCycle.env.phase
+    local day = swim(DayCycle.presets.day, 40)
+    local night = swim(DayCycle.presets.night, 40)
+    print(string.format("[selftest]   by day   %.2f darts/s, %.1f px/s, %.0f px spread", day.darts, day.speed, day.spread))
+    print(string.format("[selftest]   by night %.2f darts/s, %.1f px/s, %.0f px spread", night.darts, night.speed, night.spread))
+    check("no sea monkey left the tank", day.out + night.out == 0)
+    check("they dart less at night", night.darts < day.darts * 0.5)
+    check("they swim slower at night", night.speed < day.speed * 0.7)
+    check("they keep loosely together", day.spread > 25 and day.spread < 260)
+
+    -- Sorted by depth with the plants, so some swim behind one and before another
+    local nearest, farthest = 1, 0
+    for _, m in ipairs(SeaMonkeys.all()) do
+        nearest, farthest = math.min(nearest, m.d), math.max(farthest, m.d)
+    end
+    local behind, before = 0, 0
+    for _, p in ipairs(Plants.all()) do
+        if p.d > nearest then behind = behind + 1 end
+        if p.d < farthest then before = before + 1 end
+    end
+    check(string.format("they swim at many depths (%.2f to %.2f), %d plants before some, %d behind some",
+        nearest, farthest, behind, before), farthest - nearest > 0.3 and behind > 0 and before > 0)
+
+    -- A flake held still beside them: they gather to it
+    DayCycle.set(DayCycle.presets.day)
+    local flake = { x = 0, y = 0, d = 0.5, state = "sink" }
+    local ctx = { env = DayCycle.env, foods = {}, rocks = Substrate.getRocks() }
+    SeaMonkeys.init(C.SEAMONKEYS)
+    for _ = 1, 20 * 60 do SeaMonkeys.update(1 / 60, ctx) end
+    local function meanDistance()
+        local sum = 0
+        for _, m in ipairs(SeaMonkeys.all()) do
+            sum = sum + math.sqrt((m.x - flake.x) ^ 2 + (m.y - flake.y) ^ 2 + ((m.d - flake.d) * C.DEPTH_PX) ^ 2)
+        end
+        return sum / #SeaMonkeys.all()
+    end
+    local cx, cy = 0, 0
+    for _, m in ipairs(SeaMonkeys.all()) do cx, cy = cx + m.x, cy + m.y end
+    flake.x, flake.y = cx / #SeaMonkeys.all() + 110, cy / #SeaMonkeys.all() + 40
+    local far = meanDistance()
+    ctx.foods = { flake }
+    for _ = 1, 6 * 60 do SeaMonkeys.update(1 / 60, ctx) end
+    check(string.format("they gather to a flake (%.0f px to %.0f px)", far, meanDistance()), meanDistance() < far * 0.6)
+
+    -- Back to the tank as it was
+    DayCycle.set(phase)
+    SeaMonkeys.init(expected)
 end
 
 local function selftest(time)
@@ -154,6 +250,7 @@ local function selftest(time)
         end
         check("the tank takes no more than " .. Food.MAX .. " flakes", #Food.all() <= Food.MAX)
     end)
+    at(7.5, "sea monkeys", function() checkSeaMonkeys(check) end)
 end
 
 local function strip()

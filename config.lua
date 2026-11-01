@@ -21,6 +21,11 @@ C.CYCLE_SECONDS = 600       -- one full day/night cycle
 
 C.BUBBLER_X, C.BUBBLER_D = 150, 0.36
 
+-- How many sea monkeys (env/seamonkeys.lua), and how many on the wall frame,
+-- where the Pi has less to spare
+C.SEAMONKEYS = 14
+C.SEAMONKEYS_FRAME = 8
+
 -- The aquascape (rocks, wood, plants) is composed from a fixed seed so the
 -- tank looks the same every visit; the fish are free to do as they like.
 C.SCAPE_SEED = 2
