@@ -6,9 +6,13 @@ A planted aquarium you look into rather than play. The tank lives through a ten-
 
 ![The tank at one frozen moment, blended across the glass from dawn at the lower left to night at the upper right](https://chaps.dev/projects/fishbowl/cover.jpg)
 
+## Download
+
+**Windows:** the zip on the [latest release](https://github.com/chrischaps/Fishbowl/releases/latest), or the button on the [project page](https://chaps.dev/projects/fishbowl/). Unzip it and double-click `Fishbowl.exe`; nothing needs installing. The build isn't signed, so Windows may say it protected your PC: choose "More info", then "Run anyway".
+
 ## Running it
 
-Fishbowl runs on [LÖVE](https://love2d.org/) 11.4. From the repository root:
+Fishbowl runs on [LÖVE](https://love2d.org/) 11.5. From the repository root:
 
 ```bash
 love .
@@ -35,7 +39,9 @@ love . --seed 7              # try a different aquascape
 love . --script capture.lua  # run a capture or test script
 ```
 
-Time-of-day names are `dawn`, `morning`, `day`, `afternoon`, `sunset`, `dusk` and `night`. Pictures land in the LÖVE save directory (`%APPDATA%/LOVE/Fishbowl/snaps` on Windows).
+Time-of-day names are `dawn`, `morning`, `day`, `afternoon`, `sunset`, `dusk` and `night`. Pictures land in the LÖVE save directory (`%APPDATA%/LOVE/Fishbowl/snaps` on Windows, or `%APPDATA%/Fishbowl/snaps` for the download, which keeps its own tank).
+
+To make the Windows zip yourself, run `sh scripts/package.sh`, then `pwsh scripts/package-windows.ps1`. A `v*` tag does both in CI and drafts a release with it attached.
 
 ## How it's built
 

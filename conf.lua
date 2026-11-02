@@ -20,7 +20,9 @@ function love.conf(t)
         t.window.borderless = true
         t.window.resizable = false
     else
-        t.console = true -- a console window for debug output (Windows)
+        -- a console window for debug output (Windows), but not behind the
+        -- tank for someone who double-clicked the download
+        t.console = not love.filesystem.isFused()
         t.window.resizable = true
         t.window.minwidth = 800
         t.window.minheight = 600
