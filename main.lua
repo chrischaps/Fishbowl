@@ -360,6 +360,7 @@ function love.mousepressed(x, y, button, istouch)
     elseif button == 2 then
         Glass.tap(gx, gy)
         Fish.startle(gx, gy)
+        SeaMonkeys.startle(gx, gy)
         Ambience.tap(gx)
     end
 end
